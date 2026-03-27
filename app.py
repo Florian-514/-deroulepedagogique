@@ -32,6 +32,14 @@ COLS = [
 LOGO_URL = "https://socentric.fr/wp-content/uploads/2022/09/cropped-SoCentric_Logo-01.png"
 
 
+@st.cache_data(show_spinner=False)
+def load_logo():
+    try:
+        return urllib.request.urlopen(LOGO_URL, timeout=10).read()
+    except Exception:
+        return None
+
+
 # ─────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────
@@ -317,10 +325,10 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
     story = []
 
     # ── Logo + titre document ────────────────────────────────
-    try:
-        logo_bytes = urllib.request.urlopen(LOGO_URL, timeout=5).read()
+    logo_bytes = load_logo()
+    if logo_bytes:
         logo = Image(io.BytesIO(logo_bytes), width=3.5*cm, height=1.8*cm)
-    except Exception:
+    else:
         logo = Spacer(3.5*cm, 1.8*cm)
 
     hdr_tbl = Table(
@@ -446,6 +454,7 @@ with st.expander("ℹ️ Informations de la formation", expanded=True):
         nb_stagiaires = st.number_input("Nombre de stagiaires", min_value=1, value=10)
         version       = st.text_input("Version du document", value="V1",
                                       help="Ex : V1, V2… apparaît dans le pied de page")
+        date_maj      = st.date_input("Mis à jour le", value=datetime.date.today())
 
     rappel_objectifs = st.text_area(
         "Rappel des objectifs",
@@ -547,7 +556,7 @@ def build_meta():
         "nb_stagiaires":    nb_stagiaires,
         "rappel_objectifs": rappel_objectifs,
         "version":          version,
-        "date_maj":         datetime.date.today().strftime("%d/%m/%Y"),
+        "date_maj":         date_maj.strftime("%d/%m/%Y"),
     }
 
 col_pdf, col_xlsx = st.columns(2)
