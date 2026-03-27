@@ -38,12 +38,27 @@ LOGO_URL = "https://socentric.fr/wp-content/uploads/2022/09/cropped-SoCentric_Lo
 
 def get_api_key():
     try:
-        key = st.secrets.get("OPENAI_API_KEY", "")
-        if key:
-            return key
+        return st.secrets.get("OPENAI_API_KEY", "")
     except Exception:
-        pass
-    return st.session_state.get("api_key", "")
+        return ""
+
+
+def check_password():
+    if st.session_state.get("authenticated"):
+        return True
+    st.markdown("## 🔒 Accès protégé")
+    pwd = st.text_input("Mot de passe", type="password", placeholder="Entrez le mot de passe…")
+    if st.button("Se connecter", type="primary"):
+        try:
+            correct = st.secrets.get("APP_PASSWORD", "")
+        except Exception:
+            correct = ""
+        if pwd and pwd == correct:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Mot de passe incorrect.")
+    st.stop()
 
 
 def extract_pptx_text(pptx_bytes: bytes) -> str:
@@ -409,23 +424,10 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
 # UI
 # ─────────────────────────────────────────────
 
+check_password()
+
 st.title("📋 Déroulé Pédagogique Qualiopi")
 st.caption("Importe ton PPTX → l'IA remplit le tableau Qualiopi → exporte en PDF ou Excel.")
-
-# ── Sidebar ───────────────────────────────────
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    try:
-        has_secret = bool(st.secrets.get("OPENAI_API_KEY", ""))
-    except Exception:
-        has_secret = False
-
-    if not has_secret:
-        st.session_state["api_key"] = st.text_input(
-            "Clé API OpenAI", type="password", placeholder="sk-...",
-        )
-    else:
-        st.success("✅ Clé API configurée")
 
 # ── Métadonnées ───────────────────────────────
 with st.expander("ℹ️ Informations de la formation", expanded=True):
