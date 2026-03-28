@@ -16,8 +16,8 @@ st.set_page_config(
     layout="wide"
 )
 
-TEAL     = "#4EC5C0"
-TEAL_MID = "#A8E0DD"
+TEAL      = "#4EC5C0"
+TEAL_MID  = "#A8E0DD"
 TEAL_LIGHT = "#EBF7F7"
 
 COLS = [
@@ -34,8 +34,16 @@ LOGO_URL = "https://socentric.fr/wp-content/uploads/2022/09/cropped-SoCentric_Lo
 
 @st.cache_data(show_spinner=False)
 def load_logo():
+    """
+    FIX LOGO : ajout d'un User-Agent pour éviter le blocage HTTP 403
+    par le serveur Socentric.
+    """
     try:
-        return urllib.request.urlopen(LOGO_URL, timeout=10).read()
+        req = urllib.request.Request(
+            LOGO_URL,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; StreamlitApp/1.0)"}
+        )
+        return urllib.request.urlopen(req, timeout=10).read()
     except Exception:
         return None
 
@@ -229,7 +237,7 @@ def generate_excel(meta: dict, df: pd.DataFrame) -> bytes:
             c.border    = bdr
         ws.row_dimensions[er].height = 65
 
-    # Pied de page (dans une ligne sous le tableau)
+    # Pied de page
     footer_row = hr + 1 + len(df)
     ws.merge_cells(f"A{footer_row}:D{footer_row}")
     c = ws[f"A{footer_row}"]
@@ -266,11 +274,11 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
     from reportlab.pdfgen import canvas as rl_canvas
 
     W, H = A4
-    TEAL_C   = colors.HexColor(TEAL)
-    WHITE_C  = colors.white
-    DARK_C   = colors.HexColor("#2C2C2C")
-    GREY_C   = colors.HexColor("#888888")
-    LIGHT_C  = colors.HexColor(TEAL_LIGHT)
+    TEAL_C  = colors.HexColor(TEAL)
+    WHITE_C = colors.white
+    DARK_C  = colors.HexColor("#2C2C2C")
+    GREY_C  = colors.HexColor("#888888")
+    LIGHT_C = colors.HexColor(TEAL_LIGHT)
 
     def ps(name, **kw):
         return ParagraphStyle(name, **kw)
@@ -287,7 +295,6 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
     s_cell_c    = ps("CellC", fontSize=8, fontName="Helvetica-Bold",
                      textColor=DARK_C, leading=10, alignment=TA_CENTER)
 
-    # ── NumberedCanvas for Page X / Y ──────────────────────
     footer_left = (
         f"{meta.get('version','V1')} ({meta['nom_formation']}) "
         f"• mis à jour le {meta['date_maj']}"
@@ -314,7 +321,6 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
                 rl_canvas.Canvas.showPage(self)
             rl_canvas.Canvas.save(self)
 
-    # ── Document ────────────────────────────────────────────
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
@@ -324,7 +330,6 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
 
     story = []
 
-    # ── Logo + titre document ────────────────────────────────
     logo_bytes = load_logo()
     if logo_bytes:
         logo = Image(io.BytesIO(logo_bytes), width=3.5*cm, height=1.8*cm)
@@ -345,11 +350,9 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
     story.append(hdr_tbl)
     story.append(Spacer(1, 0.5*cm))
 
-    # ── Nom de formation ────────────────────────────────────
     story.append(Paragraph(f"« {meta['nom_formation']} »", s_formation))
     story.append(Spacer(1, 0.4*cm))
 
-    # ── Rappel des objectifs ─────────────────────────────────
     if meta.get("rappel_objectifs"):
         obj_tbl = Table(
             [["", Paragraph(
@@ -369,8 +372,7 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
 
     story.append(Spacer(1, 0.25*cm))
 
-    # ── Tableau principal ────────────────────────────────────
-    col_w = [1.2*cm, 2.1*cm, 3.4*cm, 5.6*cm, 2.75*cm, 2.75*cm]  # = 17.8cm
+    col_w = [1.2*cm, 2.1*cm, 3.4*cm, 5.6*cm, 2.75*cm, 2.75*cm]
 
     def hdr_p(line1, line2=None):
         txt = f"<b>{line1}</b>"
@@ -413,7 +415,6 @@ def generate_pdf(meta: dict, df: pd.DataFrame) -> bytes:
         ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
         ("MINROWHEIGHT",  (0, 0), (-1,  0), 1.4*cm),
     ]
-    # Alternating row backgrounds
     for i in range(1, len(rows)):
         bg = LIGHT_C if i % 2 == 0 else WHITE_C
         style_cmds.append(("BACKGROUND", (0, i), (-1, i), bg))
@@ -479,15 +480,20 @@ with st.expander("ℹ️ Informations de la formation", expanded=True):
 
 st.divider()
 
-# ── Étape 1 : PPTX ───────────────────────────
-st.subheader("1 — Importer le support de formation")
-uploaded = st.file_uploader("Glisse ton fichier .pptx ici", type=["pptx"],
-                             label_visibility="collapsed")
-
+# ── Init session state ────────────────────────
 if "pptx_text" not in st.session_state:
     st.session_state["pptx_text"] = ""
 if "df" not in st.session_state:
     st.session_state["df"] = pd.DataFrame(columns=COLS)
+# FIX DOUBLE-EDIT : version counter pour forcer le reset de l'éditeur
+# uniquement quand on génère de nouvelles données (pas à chaque rerun).
+if "editor_version" not in st.session_state:
+    st.session_state["editor_version"] = 0
+
+# ── Étape 1 : PPTX ───────────────────────────
+st.subheader("1 — Importer le support de formation")
+uploaded = st.file_uploader("Glisse ton fichier .pptx ici", type=["pptx"],
+                             label_visibility="collapsed")
 
 if uploaded:
     pptx_text = extract_pptx_text(uploaded.read())
@@ -498,7 +504,7 @@ st.divider()
 
 # ── Étape 2 : IA ──────────────────────────────
 st.subheader("2 — Générer le déroulé avec l'IA")
-api_key     = get_api_key()
+api_key      = get_api_key()
 can_generate = bool(api_key) and bool(st.session_state["pptx_text"])
 
 if not api_key:
@@ -516,6 +522,9 @@ if st.button("✨ Générer le déroulé", type="primary", disabled=not can_gene
                 api_key,
             )
             st.session_state["df"] = pd.DataFrame(rows)
+            # FIX DOUBLE-EDIT : on incrémente la version → l'éditeur se
+            # réinitialise proprement avec les nouvelles données IA.
+            st.session_state["editor_version"] += 1
             st.success(f"✅ {len(rows)} séquences générées !")
         except json.JSONDecodeError as e:
             st.error(f"Erreur JSON : {e}")
@@ -526,8 +535,14 @@ st.divider()
 
 # ── Étape 3 : Tableau ─────────────────────────
 st.subheader("3 — Vérifier et ajuster")
+
+# FIX DOUBLE-EDIT : la clé est versionnée → l'éditeur ne se réinitialise
+# QUE quand on génère de nouvelles données. Entre deux reruns normaux
+# (clic sur export, move, etc.) la clé reste identique et Streamlit
+# conserve l'état interne du widget sans l'écraser.
 edited = st.data_editor(
     st.session_state["df"],
+    key=f"editor_v{st.session_state['editor_version']}",
     num_rows="dynamic",
     use_container_width=True,
     height=500,
@@ -540,7 +555,40 @@ edited = st.data_editor(
         "Modalités de validation des acquis": st.column_config.TextColumn(width=210),
     },
 )
-st.session_state["df"] = edited
+# NOTE : on ne réassigne PLUS st.session_state["df"] depuis l'éditeur.
+# `edited` contient toujours l'état courant du tableau (y compris les
+# modifications tapées par l'utilisateur) et est utilisé directement
+# pour les exports ci-dessous.
+
+# ── Déplacer des lignes ───────────────────────
+if not edited.empty:
+    st.caption("**Déplacer une séquence :** sélectionne une ligne puis utilise les boutons ↑ ↓")
+    col_sel, col_up, col_dn, _ = st.columns([4, 1, 1, 4])
+    with col_sel:
+        row_labels = {
+            i: f"L{i+1} — {str(edited.iloc[i].get('Contenu de la séquence', ''))[:55]}"
+            for i in range(len(edited))
+        }
+        selected = st.selectbox(
+            "Ligne",
+            options=list(row_labels.keys()),
+            format_func=lambda x: row_labels[x],
+            label_visibility="collapsed",
+        )
+    with col_up:
+        if st.button("↑ Monter", disabled=(selected == 0), use_container_width=True):
+            df_mv = edited.copy().reset_index(drop=True)
+            df_mv.iloc[[selected - 1, selected]] = df_mv.iloc[[selected, selected - 1]].values
+            st.session_state["df"] = df_mv
+            st.session_state["editor_version"] += 1
+            st.rerun()
+    with col_dn:
+        if st.button("↓ Descendre", disabled=(selected == len(edited) - 1), use_container_width=True):
+            df_mv = edited.copy().reset_index(drop=True)
+            df_mv.iloc[[selected, selected + 1]] = df_mv.iloc[[selected + 1, selected]].values
+            st.session_state["df"] = df_mv
+            st.session_state["editor_version"] += 1
+            st.rerun()
 
 st.divider()
 
